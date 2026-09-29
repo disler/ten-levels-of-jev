@@ -4,6 +4,7 @@
  * selection or node:test isolation; missing production credentials fail closed.
  */
 import { MockJev } from "./mock.ts";
+import { LayaJev } from "./laya.ts";
 import {
   QuestionValidationError,
   validateRequest,
@@ -13,7 +14,7 @@ import {
   type SystemOneResponse,
 } from "./types.ts";
 
-export type JevProvider = "mock" | "openrouter" | "typesafe";
+export type JevProvider = "mock" | "laya" | "openrouter" | "typesafe";
 
 const ENDPOINTS = {
   openrouter: "https://openrouter.ai/api/alpha/decisions",
@@ -101,6 +102,7 @@ export class JevClient {
   private readonly apiKey?: string;
   private readonly endpoint?: string;
   private readonly mock = new MockJev();
+  private readonly laya = new LayaJev();
   private readonly model?: string;
   private readonly timeoutMs: number;
   private readonly retryDelayMs: number;
@@ -128,6 +130,7 @@ export class JevClient {
       this.pricing = { ...opts.pricing };
     }
     if (this.provider === "mock") return;
+    if (this.provider === "laya") return; // local engine: no key, no endpoint
     this.apiKey = (opts.apiKey ?? process.env[KEY_ENV[this.provider]])?.trim();
     this.endpoint = opts.baseUrl ?? ENDPOINTS[this.provider];
     if (!this.apiKey) {
@@ -136,7 +139,7 @@ export class JevClient {
   }
 
   get isLive(): boolean {
-    return this.provider !== "mock";
+    return this.provider === "laya" || this.provider === "openrouter" || this.provider === "typesafe";
   }
 
   /** Observe every request and response this client makes. */
@@ -158,7 +161,7 @@ export class JevClient {
   ): Promise<SystemOneResult> {
     opts.signal?.throwIfAborted();
     const requestedModel = opts.model ?? this.model ??
-      (this.provider === "mock" ? this.mock.model : DEFAULT_MODELS[this.provider]);
+      (this.provider === "mock" ? this.mock.model : this.provider === "laya" ? this.laya.model : DEFAULT_MODELS[this.provider]);
     const body: SystemOneRequest = { model: requestedModel, state, questions };
     validateRequest(body);
     let requestText: string;
@@ -179,6 +182,17 @@ export class JevClient {
       const response = this.mock.systemOne(request);
       const raw = { request, requestText, response, responseText: JSON.stringify(response) };
       const out = withMeta(raw, this.provider, requestedModel, started, 1, this.pricing);
+      this.emit({ kind: "response", result: out });
+      return out;
+    }
+
+    if (this.provider === "laya") {
+      opts.signal?.throwIfAborted();
+      const response = await this.laya.systemOne(request);
+      const responseText = JSON.stringify(response);
+      validateResponse(JSON.parse(responseText), request.questions);
+      const raw = { request, requestText, response, responseText };
+      const out = withMeta(raw, this.provider, requestedModel, started, 1, undefined);
       this.emit({ kind: "response", result: out });
       return out;
     }
@@ -239,16 +253,17 @@ function selectProvider(explicit?: JevProvider): JevProvider {
   const isolated = process.env.NODE_TEST_CONTEXT && process.env.JEV_LIVE !== "1";
   const selected = explicit ?? (isolated ? "mock" : process.env.JEV_BACKEND?.trim() || undefined);
   if (selected !== undefined) {
-    if (selected === "mock" || selected === "typesafe" || selected === "openrouter") return selected;
-    throw new Error(`Unknown JEV backend "${selected}"; use mock, openrouter, or typesafe.`);
+    if (selected === "mock" || selected === "laya" || selected === "typesafe" || selected === "openrouter") return selected;
+    throw new Error(`Unknown JEV backend "${selected}"; use mock, laya, openrouter, or typesafe.`);
   }
   if (process.env.TYPESAFE_API_KEY?.trim()) return "typesafe";
   if (process.env.OPENROUTER_API_KEY?.trim()) return "openrouter";
-  throw new Error("No Jev credentials: set TYPESAFE_API_KEY or OPENROUTER_API_KEY, or explicitly select provider: mock / JEV_BACKEND=mock for offline use.");
+  throw new Error("No Jev credentials: set TYPESAFE_API_KEY or OPENROUTER_API_KEY, or explicitly select provider: mock / laya (local) / JEV_BACKEND=mock for offline use.");
 }
 
 function resultCost(response: SystemOneResponse, provider: JevProvider, pricing?: JevPricing): JevCost {
   if (provider === "mock") return { amount: 0, source: "mock" };
+  if (provider === "laya") return { amount: 0, source: "estimated" }; // local inference: no metered cost
   if (isNonnegative(response.usage.cost)) return { amount: response.usage.cost, source: "reported" };
   if (pricing) {
     const amount = response.usage.input_tokens / 1_000_000 * pricing.inputPerMillion +
