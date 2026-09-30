@@ -1,5 +1,6 @@
 set dotenv-load := true
 set shell := ["/bin/zsh", "-ic"]
+set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-c"]  # local: no zsh on Windows
 
 project_root := justfile_directory()
 app := project_root + "/apps/ten-levels"
@@ -78,6 +79,10 @@ test:
     cd "{{app}}" && npm run -s test
 
 # 10 live tests against real Jev, one per level.
+# Levels 6 to 10 on Claude Code: a fresh sandbox copy with the Jev hooks and the jev MCP tools. Extra args go to claude.
+claude *args:
+    cd "{{app}}" && node claude/launch.ts {{args}}
+
 test-live:
     cd "{{app}}" && npm run -s test:live
 
