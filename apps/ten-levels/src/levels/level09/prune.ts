@@ -22,14 +22,14 @@ export async function expandPatterns(patterns: string[], cwd: string, recursive:
     const pattern = raw.trim();
     if (!pattern) continue;
     if (GLOB_CHARS.test(pattern)) {
-      for await (const p of glob(pattern, { cwd })) out.add(String(p));
+      for await (const p of glob(pattern, { cwd })) out.add(String(p).replaceAll("\\", "/"));
       continue;
     }
     const full = isAbsolute(pattern) ? pattern : resolve(cwd, pattern);
     let info;
     try { info = await stat(full); } catch { out.add(pattern); continue; } // let prune report it
     if (info.isFile()) { out.add(pattern); continue; }
-    for await (const p of glob(recursive ? `${pattern.replace(/\/+$/, "")}/**/*` : `${pattern.replace(/\/+$/, "")}/*`, { cwd })) out.add(String(p));
+    for await (const p of glob(recursive ? `${pattern.replace(/\/+$/, "")}/**/*` : `${pattern.replace(/\/+$/, "")}/*`, { cwd })) out.add(String(p).replaceAll("\\", "/"));
   }
   return [...out].sort();
 }

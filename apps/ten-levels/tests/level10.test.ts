@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as l10 from "../src/levels/level10/index.ts";
@@ -49,7 +50,7 @@ test("L10 C: the ledger counts calls, questions, tokens, and dollars", () => {
 
 test("L10: assembleState merges own state, files, and a command's output, and never truncates", async () => {
   const { assembleState } = l10;
-  const SANDBOX = new URL("../sandbox/", import.meta.url).pathname;
+  const SANDBOX = fileURLToPath(new URL("../sandbox/", import.meta.url));
   const run = async (command: string) => ({ command, exit_code: 1, stdout: "not ok 3 - proration", stderr: "" });
   const a = await assembleState({ state: '{"report": "export is broken"}', paths: ["src/domain/billing.ts"], command: "npm test" }, SANDBOX, run);
   assert.equal(a.state.report, "export is broken");
@@ -60,7 +61,7 @@ test("L10: assembleState merges own state, files, and a command's output, and ne
 });
 
 test("L10: plain text state becomes text, nothing at all is refused, pasted content is refused", async () => {
-  const SANDBOX = new URL("../sandbox/", import.meta.url).pathname;
+  const SANDBOX = fileURLToPath(new URL("../sandbox/", import.meta.url));
   const run = async () => { throw new Error("must not run"); };
   const a = await l10.assembleState({ state: "customer says export fails" }, SANDBOX, run);
   assert.equal(a.state.text, "customer says export fails");
